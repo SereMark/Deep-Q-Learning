@@ -1,0 +1,31 @@
+name: deep_q_networks
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - numpy>=1.23
+  - swig
+  - cmake
+  - zlib
+  - jpeg
+  - ffmpeg
+  - pyopengl
+  - boost
+  - sdl2
+  - pip
+  - matplotlib
+  - seaborn
+  - ipython
+  - jupyter
+  - pytorch
+  - pip:
+      - gymnasium==0.29.0
+      - "gymnasium[box2d]"
+      - pyvirtualdisplay
+      - imageio-ffmpeg
+      - moviepy==1.0.3
+      - onnx
+      - onnx2pytorch==0.4.1
+      - opencv-python
+      - minigrid==2.0.0
