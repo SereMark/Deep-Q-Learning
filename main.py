@@ -5,6 +5,7 @@ from models import MlpMinigridPolicy
 from replay_buffer import ReplayBuffer
 from environment import MinigridDoorKey6x6ImgObs
 from utils import set_seed, soft_update, save_as_onnx
+from torch.nn import SmoothL1Loss
 
 def run_episode(env, agent, seed=None):
     state = env.reset(seed=seed)[0]
@@ -24,8 +25,8 @@ if __name__ == "__main__":
     num_episodes = 1000
     buffer_size = 100000
     epsilon_start = 1.0
-    epsilon_end = 0.3
-    epsilon_decay = 10000
+    epsilon_end = 0.05
+    epsilon_decay = 5000
     gamma = 0.99
     learning_rate = 0.0001
     tau = 1e-3
@@ -53,8 +54,9 @@ if __name__ == "__main__":
     dqn_target = MlpMinigridPolicy(num_actions=num_actions).to(device=device)
     dqn_target.load_state_dict(dqn.state_dict())
     
-    optimizer = torch.optim.Adam(dqn.parameters(), lr=learning_rate)
-    mse = torch.nn.MSELoss()
+    optimizer = torch.optim.Adam(dqn.parameters(), lr=learning_rate, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=250, gamma=0.5)
+    criterion = SmoothL1Loss()
     buffer = ReplayBuffer(num_actions=num_actions, memory_len=buffer_size)
     
     returns = []
@@ -68,7 +70,7 @@ if __name__ == "__main__":
         done = False
         
         while not done:
-            epsilon = max(epsilon_end, epsilon_start - timesteps / epsilon_decay)
+            epsilon = epsilon_end + (epsilon_start - epsilon_end) * np.exp(-1.0 * timesteps / epsilon_decay)
             
             if np.random.random() < epsilon:
                 a = np.random.randint(low=0, high=num_actions)
@@ -98,12 +100,22 @@ if __name__ == "__main__":
                 current_q = torch.sum(q_values * mb_a, dim=1)
                 
                 with torch.no_grad():
+                    next_actions = dqn(next_states_tensor).argmax(dim=1, keepdim=True)
                     next_q_values = dqn_target(next_states_tensor)
-                    max_next_q = next_q_values.max(1)[0]
-                    target_q = mb_reward + (1 - mb_done) * gamma * max_next_q
+                    next_q_values = next_q_values.gather(1, next_actions).squeeze()
+                    target_q = mb_reward + (1 - mb_done) * gamma * next_q_values
                 
-                loss = mse(current_q, target_q)
+                td_errors = (target_q - current_q).detach().cpu().numpy()
+                
+                sample_indices = np.random.choice(buffer.length(), size=min(minibatch_size, buffer.length()), replace=False)
+                
+                buffer.update_priorities(sample_indices, td_errors)
+                
+                loss = criterion(current_q, target_q)
                 loss.backward()
+                
+                torch.nn.utils.clip_grad_norm_(dqn.parameters(), max_norm=10.0)
+                
                 optimizer.step()
                 losses.append(loss.item())
                 
@@ -115,6 +127,8 @@ if __name__ == "__main__":
                 break
         
         returns.append(ret)
+        
+        scheduler.step()
         
         if (i + 1) % save_interval == 0:
             checkpoint_dict = {'model_params': dqn.state_dict(), 'timesteps': timesteps}

@@ -17,7 +17,6 @@ class ScaledFloatFrame(gym.ObservationWrapper):
     def observation(self, observation):
         return np.array(observation).astype(np.float32)
 
-
 class MinigridDoorKey6x6ImgObs(gym.Wrapper):
     def __init__(self):
         env = gym.make('MiniGrid-DoorKey-6x6-v0')
